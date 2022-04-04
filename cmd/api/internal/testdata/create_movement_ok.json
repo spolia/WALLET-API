@@ -1,0 +1,6 @@
+{
+  "type": "deposit",
+  "amount": 100,
+  "currencyname": "usdt",
+  "userid": 1
+}
