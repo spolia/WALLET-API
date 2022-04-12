@@ -2,11 +2,11 @@ package main
 
 import (
 	"database/sql"
-	"fmt"
 	"log"
+	"net/http"
 
-	"github.com/gin-gonic/gin"
 	_ "github.com/go-sql-driver/mysql"
+	"github.com/gorilla/mux"
 	"github.com/spolia/wallet-api/cmd/api/internal"
 	"github.com/spolia/wallet-api/internal/wallet"
 	"github.com/spolia/wallet-api/internal/wallet/movement"
@@ -15,25 +15,17 @@ import (
 
 func main() {
 	log.Println("starting")
-	var err error
-	dataSourceName := fmt.Sprintf("%s:%s@tcp(%s)/%s?%s", "root", "rootroot", "127.0.0.1:3306", "wallet", "parseTime=true")
-	log.Println("datasource", dataSourceName)
 
-	db, err := sql.Open("mysql", dataSourceName)
+	db, err := sql.Open("mysql", "tester:secret@tcp(db:3306)/test?charset=utf8&parseTime=True&loc=Local")
 	if err != nil {
-		log.Fatal(err)
-	}
-
-	if err := db.Ping(); err != nil {
 		log.Fatal(err)
 	}
 
 	service := wallet.New(user.New(db), movement.New(db))
 	log.Println("service successfully configured")
 
-	router := gin.Default()
+	router := mux.NewRouter()
 	internal.API(router, service)
-
-	router.Run("localhost:8080")
-	log.Println("listening")
+	// localhost:8080
+	http.ListenAndServe(":8080", router)
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/spolia/wallet-api/internal/wallet/movement"
 	"github.com/spolia/wallet-api/internal/wallet/user"
@@ -19,18 +18,18 @@ func TestService_CreateUser_ok(t *testing.T) {
 		LastName:  "lastname",
 		Alias:     "alias",
 		Email:     "email",
+		Password:  "1234",
 	}
 	// When
 	var userMock userRepositoryMock
-	userMock.On("Save").Return(int64(1), nil).Once()
+	userMock.On("Save").Return(nil).Once()
 	var movementsMock movementRepositoryMock
 	movementsMock.On("InitSave").Return(nil).Once()
 	service := New(&userMock, &movementsMock)
 
 	// Then
-	userID, err := service.CreateUser(context.Background(), input.FirstName, input.LastName, input.Alias, input.Email)
+	err := service.CreateUser(context.Background(), input)
 	require.NoError(t, err)
-	require.Equal(t, int64(1), userID)
 }
 
 func TestService_CreateUser_Fail(t *testing.T) {
@@ -40,17 +39,17 @@ func TestService_CreateUser_Fail(t *testing.T) {
 		LastName:  "lastname",
 		Alias:     "alias",
 		Email:     "email",
+		Password:  "1234",
 	}
 	// When
 	var userMock userRepositoryMock
-	userMock.On("Save").Return(int64(0), errors.New("user: fail")).Once()
+	userMock.On("Save").Return(errors.New("user: fail")).Once()
 
 	service := New(&userMock, nil)
 
 	// Then
-	userID, err := service.CreateUser(context.Background(), input.FirstName, input.LastName, input.Alias, input.Email)
+	err := service.CreateUser(context.Background(), input)
 	require.Error(t, err)
-	require.Equal(t, int64(0), userID)
 }
 
 func TestService_CreateUser_When_InitSaveFails_DeletesUserSaved(t *testing.T) {
@@ -60,10 +59,11 @@ func TestService_CreateUser_When_InitSaveFails_DeletesUserSaved(t *testing.T) {
 		LastName:  "lastname",
 		Alias:     "alias",
 		Email:     "email",
+		Password:  "1234",
 	}
 	// When
 	var userMock userRepositoryMock
-	userMock.On("Save").Return(int64(1), nil).Once()
+	userMock.On("Save").Return(nil).Once()
 	userMock.On("Delete").Return(nil).Once()
 
 	var movementsMock movementRepositoryMock
@@ -71,9 +71,8 @@ func TestService_CreateUser_When_InitSaveFails_DeletesUserSaved(t *testing.T) {
 	service := New(&userMock, &movementsMock)
 
 	// Then
-	userID, err := service.CreateUser(context.Background(), input.FirstName, input.LastName, input.Alias, input.Email)
-	require.NoError(t, err)
-	require.Equal(t, int64(0), userID)
+	err := service.CreateUser(context.Background(), input)
+	require.Error(t, err)
 }
 
 func TestService_GetUser_When_GetAccountExtractFail_Then_ReturnsError(t *testing.T) {
@@ -92,93 +91,52 @@ func TestService_GetUser_When_GetAccountExtractFail_Then_ReturnsError(t *testing
 	service := New(&userMock, &movementsMock)
 
 	// Then
-	userResult, err := service.GetUser(context.Background(), 1)
+	userResult, err := service.GetBalance(context.Background(), "user")
 	require.Error(t, err)
 	require.Empty(t, userResult)
 }
 
-func TestService_CreateMovement_ok(t *testing.T) {
+func TestService_Send_ok(t *testing.T) {
+	// Given
+	input := movement.Movement{
+		Type:             "deposit",
+		Amount:           100,
+		CurrencyName:     "ARS",
+		Alias:            "user",
+		InteractionAlias: "user",
+	}
+	// When
+	var userMock userRepositoryMock
+	var movementsMock movementRepositoryMock
+	userMock.On("Exist").Return(true, nil).Once()
+	movementsMock.On("Save").Return(nil).Once()
+	movementsMock.On("GetFunds").Return(float64(100), nil).Once()
+	service := New(&userMock, &movementsMock)
+
+	// Then
+	err := service.Send(context.Background(), input)
+	require.NoError(t, err)
+}
+
+func TestService_Send_Fail(t *testing.T) {
 	// Given
 	input := movement.Movement{
 		Type:         "deposit",
 		Amount:       100,
 		CurrencyName: "ARS",
-		UserID:       1,
+		Alias:        "user",
 	}
 	// When
 	var userMock userRepositoryMock
 	var movementsMock movementRepositoryMock
-	movementsMock.On("Save").Return(int64(1), nil).Once()
+	userMock.On("Exist").Return(true, nil).Once()
+	movementsMock.On("GetFunds").Return(float64(100), nil).Once()
+	movementsMock.On("Save").Return(errors.New("movement:fail")).Once()
 	service := New(&userMock, &movementsMock)
 
 	// Then
-	id, err := service.CreateMovement(context.Background(), input)
-	require.NoError(t, err)
-	require.Equal(t, int64(1), id)
-}
-
-func TestService_CreateMovement_Fail(t *testing.T) {
-	// Given
-	input := movement.Movement{
-		Type:         "deposit",
-		Amount:       100,
-		CurrencyName: "ARS",
-		UserID:       1,
-	}
-	// When
-	var userMock userRepositoryMock
-	var movementsMock movementRepositoryMock
-	movementsMock.On("Save").Return(int64(0), errors.New("movement:fail")).Once()
-	service := New(&userMock, &movementsMock)
-
-	// Then
-	id, err := service.CreateMovement(context.Background(), input)
+	err := service.Send(context.Background(), input)
 	require.Error(t, err)
-	require.Equal(t, int64(0), id)
-}
-
-func TestService_SearchMovement_Ok(t *testing.T) {
-	// When
-	var userMock userRepositoryMock
-	var movementsMock movementRepositoryMock
-	movementsMock.On("Search").Return([]movement.Row{
-		{
-			CurrencyName: "USDT",
-			Type:         "deposut",
-			DateCreated:  time.Now(),
-			Amount:       100.00,
-			TotalAmount:  200.00,
-		},
-		{
-			CurrencyName: "USDT",
-			Type:         "deposut",
-			DateCreated:  time.Now(),
-			Amount:       100.00,
-			TotalAmount:  300.00,
-		},
-	}, nil).Once()
-	service := New(&userMock, &movementsMock)
-
-	// Then
-	movements, err := service.SearchMovement(context.Background(), 1, uint64(10), uint64(0), "deposit",
-		"usdt")
-	require.NoError(t, err)
-	require.Equal(t, 2, len(movements))
-	require.Equal(t, 200.00, movements[0].TotalAmount)
-}
-
-func TestService_SearchMovement_Fail(t *testing.T) {
-	// When
-	var userMock userRepositoryMock
-	var movementsMock movementRepositoryMock
-	movementsMock.On("Search").Return([]movement.Row{}, errors.New("fail")).Once()
-	service := New(&userMock, &movementsMock)
-
-	// Then
-	movements, err := service.SearchMovement(context.Background(), 1, uint64(10), uint64(0), "deposit",
-		"usdt")
-	require.Error(t, err)
-	require.Equal(t, 0, len(movements))
 }
 
 type userRepositoryMock struct {
@@ -189,24 +147,29 @@ type movementRepositoryMock struct {
 	mock.Mock
 }
 
-func (u *userRepositoryMock) Save(ctx context.Context, firstName, lastName, alias, email string) (int64, error) {
-	args := u.Called()
-	return args.Get(0).(int64), args.Error(1)
-}
-
-func (u *userRepositoryMock) Get(ctx context.Context, id int64) (user.User, error) {
-	args := u.Called()
-	return args.Get(0).(user.User), args.Error(1)
-}
-
-func (u *userRepositoryMock) Delete(ctx context.Context, id int64) error {
+func (u *userRepositoryMock) Save(ctx context.Context, us user.User) error {
 	args := u.Called()
 	return args.Error(0)
 }
 
-func (m *movementRepositoryMock) Save(ctx context.Context, movement movement.Movement) (int64, error) {
+func (u *userRepositoryMock) Exist(ctx context.Context, alias string) (bool, error) {
+	args := u.Called()
+	return args.Bool(0), args.Error(1)
+}
+
+func (u *userRepositoryMock) Delete(ctx context.Context, alias string) error {
+	args := u.Called()
+	return args.Error(0)
+}
+
+func (u *userRepositoryMock) IsValidCredential(ctx context.Context, alias, password string) (bool, error) {
+	args := u.Called()
+	return args.Bool(0), args.Error(1)
+}
+
+func (m *movementRepositoryMock) Save(ctx context.Context, movement movement.Movement) error {
 	args := m.Called()
-	return args.Get(0).(int64), args.Error(1)
+	return args.Error(0)
 }
 
 func (m *movementRepositoryMock) InitSave(ctx context.Context, movement movement.Movement) error {
@@ -214,13 +177,17 @@ func (m *movementRepositoryMock) InitSave(ctx context.Context, movement movement
 	return args.Error(0)
 }
 
-func (m *movementRepositoryMock) Search(ctx context.Context, userID int64, limit, offset uint64, movType,
-	currencyName string) ([]movement.Row, error) {
+func (m *movementRepositoryMock) GetHistory(ctx context.Context, alias string) (movement.AccountHistory, error) {
 	args := m.Called()
-	return args.Get(0).([]movement.Row), args.Error(1)
+	return args.Get(0).(movement.AccountHistory), args.Error(1)
 }
 
-func (m *movementRepositoryMock) GetAccountExtract(ctx context.Context, id int64) (movement.AccountBalance, error) {
+func (m *movementRepositoryMock) GetFunds(ctx context.Context, currencyName, alias string) (float64, error) {
+	args := m.Called()
+	return args.Get(0).(float64), args.Error(1)
+}
+
+func (m *movementRepositoryMock) GetAccountExtract(ctx context.Context, alias string) (movement.AccountBalance, error) {
 	args := m.Called()
 	return args.Get(0).(movement.AccountBalance), args.Error(1)
 }

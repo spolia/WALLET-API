@@ -1,21 +1,36 @@
-version: "3.7"
+version: '3.7'
 services:
-  api:
-    container_name: WALLET-API
-    image: 
-      github.com/atkinsonbg/go-gmux-proper-unit-testing/api:latest
-    environment:
-      DBHOST: wallet-api-db
-      DBNAME: wallet-api-db
-      DBUSER: postgres
+  db:
+    container_name: test_db
+    platform: linux/x86_64
+    build:
+      context: .
+      dockerfile: db.Dockerfile
+    networks:
+      - default
+    restart: always
     ports:
-      - 80:80
-  database:
-    container_name: wallet-api-db
-    image: postgres:11.6-alpine
+      - '13306:3306'
     environment:
-      POSTGRES_DB: wallet-api-db
-      volumes:
-        - ./migrations/init.sql:/docker-entrypoint-initdb.d/init.sql
-      ports:
-        - 5432:5432
+      MYSQL_RANDOM_ROOT_PASSWORD: secret
+      MYSQL_DATABASE: test
+      MYSQL_USER: tester
+      MYSQL_PASSWORD: secret
+    volumes:
+      - mysql_data:/var/lib/mysql
+    command: --default-authentication-plugin=mysql_native_password
+  api:
+    container_name:  test_api
+    build:
+      context: .
+      dockerfile: api.Dockerfile
+    ports:
+      - '8080:8080'
+    depends_on:
+      - db
+    volumes:
+      - .:/app/
+networks:
+  default:
+volumes:
+  mysql_data:

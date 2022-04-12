@@ -8,9 +8,12 @@ import (
 
 const (
 	DepositMov = "deposit"
-	BTC        = "BTC"
-	ARS        = "ARS"
-	USDT       = "USDT"
+	ReceiveMov = "receive"
+	SendMov    = "send"
+
+	BTC  = "BTC"
+	ARS  = "ARS"
+	USDT = "USDT"
 )
 
 var movementTables = map[string]string{
@@ -20,34 +23,24 @@ var movementTables = map[string]string{
 }
 
 var (
-	ErrorInsufficientBalance = errors.New("movement: insufficient balance")
-	ErrorWrongOperation      = errors.New("movement: wrong operation")
-	ErrorWrongUser           = errors.New("movement: wrong user")
-	ErrorWrongCurrency       = errors.New("movement: wrong currency")
-	ErrorNoMovements         = errors.New("movement: there no movements")
+	ErrorInsufficientFunds = errors.New("movement: insufficient funds")
+	ErrorWrongCurrency     = errors.New("movement: wrong currency")
 )
 
 type AccountBalance map[string]float64
-type AccountHistory map[string][]MovRow
-
-type MovRow struct {
-	CurrencyName     string
-	Type             string
-	DateCreated      time.Time
-	Amount           float64
-	TotalAmount      float64
-	InteractionAlias string
-}
+type AccountHistory map[string][]Row
 
 type Repository interface {
-	Save(ctx context.Context, movement Movement) (int64, error)
+	Save(ctx context.Context, movement Movement) error
 	InitSave(ctx context.Context, movement Movement) error
 	GetAccountExtract(ctx context.Context, alias string) (AccountBalance, error)
+	GetHistory(ctx context.Context, alias string) (AccountHistory, error)
+	GetFunds(ctx context.Context, currencyName, alias string) (float64, error)
 }
 
 type Movement struct {
 	ID               int64   `json:"id"`
-	Type             string  `json:"type" binding:"required,oneof=deposit extract"`
+	Type             string  `json:"type" binding:"required,oneof=send"`
 	Amount           float64 `json:"amount" binding:"required,gte=0"`
 	CurrencyName     string  `json:"currencyname" binding:"required,oneof=usdt btc ars"`
 	Alias            string  `json:"alias" binding:"required"`
@@ -62,11 +55,11 @@ type Currency struct {
 }
 
 type Row struct {
-	CurrencyName string
-	Type         string
-	DateCreated  time.Time
-	Amount       float64
-	TotalAmount  float64
+	InteractionAlias string
+	Type             string
+	DateCreated      time.Time
+	Amount           float64
+	TotalAmount      float64
 }
 
 func getCurrencyTable(currency string) string {

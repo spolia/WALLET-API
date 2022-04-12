@@ -2,70 +2,41 @@ package movement
 
 import (
 	"context"
-	"fmt"
-	"os"
-	"strings"
 	"testing"
 
-	"github.com/spolia/wallet-api/internal/database"
+	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/go-sql-driver/mysql"
 	"github.com/stretchr/testify/require"
-
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 func TestSaveMovement_ok(t *testing.T) {
 	// Given
-	// Work out the path to the 'scripts' directory and set mount strings
-	packageName := "database"
-	workingDir, _ := os.Getwd()
-	rootDir := strings.Replace(workingDir, packageName, "", 1)
-	mountFrom := fmt.Sprintf("%s/migrations/init.sql", rootDir)
-	mountTo := "/docker-entrypoint-initdb.d/init.sql"
-	// Create the Postgres TestContainer
-	ctx := context.Background()
-	req := testcontainers.ContainerRequest{
-		Image:        "postgres:11.6-alpine",
-		ExposedPorts: []string{"5432/tcp"},
-		BindMounts:   map[string]string{mountFrom: mountTo},
-		Env: map[string]string{
-			"POSTGRES_DB": os.Getenv("DBNAME"),
-		},
-		WaitingFor: wait.ForLog("database system is ready to accept connections"),
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
+	if err != nil {
+		require.NoError(t, err)
 	}
-
-	postgresC, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: req,
-		Started:          true,
-	})
-	require.NoError(err)
-	defer postgresC.Terminate(ctx)
-
-	// Get the port mapped to 5432 and set as ENV
-	p, _ := postgresC.MappedPort(ctx, "5432")
-	os.Setenv("DBPORT", p.Port())
-
-	db, err := database.InitDB()
-	require.NoError(err)
-
 	repository := New(db)
-
+	defer db.Close()
 	movement := Movement{
-		Type:             DepositMov,
+		Type:             "send",
 		Amount:           100.2,
 		CurrencyName:     USDT,
 		Alias:            "user",
-		InteractionAlias: "user",
+		InteractionAlias: "otheruser",
 	}
 
 	// When
+	mock.ExpectBegin()
+	query1 := "INSERT INTO movements_usdt(mov_type,currency_name,tx_amount,alias,interaction_alias)VALUES (?,?,?,?,?);"
+	mock.ExpectExec(query1).WithArgs(movement.Type, movement.CurrencyName, movement.Amount, movement.Alias, movement.InteractionAlias).WillReturnResult(sqlmock.NewResult(1, 1))
+	query2 := "INSERT INTO movements_usdt(mov_type,currency_name,tx_amount,alias,interaction_alias)VALUES (?,?,?,?,?);"
+	mock.ExpectExec(query2).WithArgs("receive", movement.CurrencyName, movement.Amount, movement.InteractionAlias, movement.Alias).WillReturnResult(sqlmock.NewResult(2, 1))
+	mock.ExpectCommit()
 	// then
-	movementID, err := repository.Save(ctx, movement)
+	err = repository.Save(context.Background(), movement)
 	require.NoError(t, err)
-	require.Equal(t, int64(1), movementID)
 }
 
-/*
 func TestSaveMovement_Error(t *testing.T) {
 	// Given
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
@@ -76,24 +47,22 @@ func TestSaveMovement_Error(t *testing.T) {
 	defer db.Close()
 
 	movement := Movement{
-		Type:         DepositMov,
+		Type:         "send",
 		Amount:       100.2,
 		CurrencyName: USDT,
-		UserID:       1,
+		Alias:        "user",
 	}
 
 	// When
-	query := "INSERT INTO movements_usdt(mov_type,currency_name,tx_amount,user_id)VALUES (?,?,?,?);"
-	mock.ExpectExec(query).
-		WithArgs(movement.Type, movement.CurrencyName, movement.Amount, movement.UserID).WillReturnError(&mysql.MySQLError{
+	mock.ExpectBegin()
+	query1 := "INSERT INTO movements_usdt(mov_type,currency_name,tx_amount,alias,interaction_alias)VALUES (?,?,?,?,?);"
+	mock.ExpectExec(query1).WithArgs(movement.Type, movement.CurrencyName, movement.Amount, movement.Alias, movement.InteractionAlias).WillReturnError(&mysql.MySQLError{
 		Number: 1264,
 	})
-
+	mock.ExpectRollback()
 	// then
-	movementID, err := repository.Save(context.Background(), movement)
+	err = repository.Save(context.Background(), movement)
 	require.Error(t, err)
-	require.EqualError(t, ErrorInsufficientBalance, err.Error())
-	require.Equal(t, int64(0), movementID)
 }
 
 func TestSaveMovement_ErrorWrongCurrency(t *testing.T) {
@@ -101,20 +70,18 @@ func TestSaveMovement_ErrorWrongCurrency(t *testing.T) {
 	repository := New(nil)
 
 	// When
-	movementID, err := repository.Save(context.Background(), Movement{
+	err := repository.Save(context.Background(), Movement{
 		Type:         DepositMov,
 		Amount:       100.2,
 		CurrencyName: "wrong",
-		UserID:       1,
+		Alias:        "alias",
 	})
 
 	// Then
 	require.Error(t, err)
 	require.EqualError(t, ErrorWrongCurrency, err.Error())
-	require.Equal(t, int64(0), movementID)
 }
-
-func TestInitSave_ok(t *testing.T) {
+func TestGetFunds_ok(t *testing.T) {
 	// Given
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
 	if err != nil {
@@ -122,57 +89,20 @@ func TestInitSave_ok(t *testing.T) {
 	}
 	repository := New(db)
 	defer db.Close()
-
 	movement := Movement{
-		Type:   DepositMov,
-		UserID: 1,
+		Type:             "send",
+		Amount:           100.2,
+		CurrencyName:     USDT,
+		Alias:            "user",
+		InteractionAlias: "user",
 	}
+
 	// When
-	mock.ExpectBegin()
-
-	mock.ExpectExec("INSERT INTO movements_usdt(mov_type,tx_amount,total_amount,user_id)VALUES (?,?,?,?);").
-		WithArgs(movement.Type, movement.Amount, movement.TotalAmount, movement.UserID).
-		WillReturnResult(sqlmock.NewResult(1, 1))
-
-	mock.ExpectExec("INSERT INTO movements_ars(mov_type,tx_amount,total_amount,user_id)VALUES (?,?,?,?);").
-		WithArgs(movement.Type, movement.Amount, movement.TotalAmount, movement.UserID).
-		WillReturnResult(sqlmock.NewResult(1, 1))
-
-	mock.ExpectExec("INSERT INTO movements_btc(mov_type,tx_amount,total_amount,user_id)VALUES (?,?,?,?);").
-		WithArgs(movement.Type, movement.Amount, movement.TotalAmount, movement.UserID).
-		WillReturnResult(sqlmock.NewResult(1, 1))
-
-	mock.ExpectCommit()
-
+	query := "SELECT total_amount FROM movements_usdt WHERE id = (SELECT MAX(id) FROM movements_usdt WHERE alias = ?);"
+	mock.ExpectQuery(query).WithArgs(movement.Alias).WillReturnRows(sqlmock.NewRows([]string{"total_amount"}).
+		AddRow(float64(100)))
 	// then
-	err = repository.InitSave(context.Background(), movement)
+	result, err := repository.GetFunds(context.Background(), movement.CurrencyName, movement.Alias)
 	require.NoError(t, err)
+	require.Equal(t, float64(100), result)
 }
-
-func TestSearch_ok(t *testing.T) {
-	// Given
-	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
-	if err != nil {
-		require.NoError(t, err)
-	}
-	repository := New(db)
-	defer db.Close()
-
-	movement := Movement{
-		Type:         DepositMov,
-		UserID:       int64(1),
-		CurrencyName: ARS,
-	}
-	// When
-
-	mock.ExpectQuery("SELECT mov_type, currency_name, date_created, tx_amount, total_amount FROM movements_ars WHERE user_id = ? AND mov_type = 'deposit'").
-		WithArgs(movement.UserID).WillReturnRows(sqlmock.NewRows([]string{"mov_type", "currency_name", "date_created", "tx_amount", "total_amount"}).
-		AddRow("deposit", "ars", time.Now(), 200, 1000)).WillReturnRows(sqlmock.NewRows([]string{"mov_type", "currency_name", "date_created", "tx_amount", "total_amount"}).
-		AddRow("deposit", "ars", time.Now(), 300, 2000))
-
-	// then
-	rows, err := repository.Search(context.Background(), movement.UserID, 0, 0, movement.Type, movement.CurrencyName)
-	require.NoError(t, err)
-	require.True(t, true, len(rows) > 0)
-}
-*/

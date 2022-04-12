@@ -10,19 +10,21 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/gin-gonic/gin"
+	"github.com/gorilla/mux"
 	"github.com/spolia/wallet-api/internal/wallet/movement"
 	"github.com/spolia/wallet-api/internal/wallet/user"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
 func Test_Handler_API_createUser(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	tt := []struct {
 		TestName, Filename string
 		ExpectedStatus     int
 		Error              error
 	}{
-		{"Ok", "create_user_ok", http.StatusCreated, nil},
+		{"Ok", "create_user_ok", http.StatusOK, nil},
 		{"WrongFormat", "create_user_wrong_format", http.StatusBadRequest, nil},
 		{"ErrorAlreadyExist", "create_user_ok", http.StatusBadRequest, user.ErrorAlreadyExist},
 		{"InternalServerError", "create_user_ok", http.StatusInternalServerError, errors.New("fail")},
@@ -32,10 +34,10 @@ func Test_Handler_API_createUser(t *testing.T) {
 		// When
 		service := &serviceMock{}
 
-		service.On("CreateUser").Return(int64(1), tc.Error)
+		service.On("CreateUser").Return(tc.Error)
 
 		rr := httptest.NewRecorder()
-		router := gin.Default()
+		router := mux.NewRouter()
 		API(router, service)
 		body, err := ioutil.ReadFile(fmt.Sprintf("testdata/%s.json", tc.Filename))
 		require.NoError(t, err)
@@ -49,99 +51,56 @@ func Test_Handler_API_createUser(t *testing.T) {
 	}
 }
 
-func Test_Handler_API_getUser(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	userResponse := user.User{
-		ID:        1,
-		FirstName: "maria",
-		LastName:  "garcia",
-		Alias:     "mariagarcia",
-		Email:     "@gmail",
-	}
+func Test_Handler_API_Login(t *testing.T) {
 
-	tt := []struct {
-		TestName       string
-		ExpectedStatus int
-		Error          error
-		UserReponse    user.User
-	}{
-		{"Ok", http.StatusOK, nil, userResponse},
-		{"ErrorUserNotFound", http.StatusNotFound, user.ErrorUserNotFound, user.User{}},
-		{"InternalServerError", http.StatusInternalServerError, errors.New("fail"), user.User{}},
-	}
+	service := &serviceMock{}
 
-	for _, tc := range tt {
-		// When
-		service := &serviceMock{}
+	service.On("ValidateCredential").Return(true, nil)
 
-		service.On("GetUser").Return(tc.UserReponse, tc.Error)
+	rr := httptest.NewRecorder()
+	router := mux.NewRouter()
+	API(router, service)
+	body, err := ioutil.ReadFile("testdata/login.json")
+	require.NoError(t, err)
+	reader := bytes.NewReader(body)
+	request, err := http.NewRequest(http.MethodPost, "/login", reader)
+	assert.NoError(t, err)
 
-		rr := httptest.NewRecorder()
-		router := gin.Default()
-		API(router, service)
-
-		request, err := http.NewRequest(http.MethodGet, "/users/1", nil)
-		assert.NoError(t, err)
-
-		router.ServeHTTP(rr, request)
-		// Then
-		require.Equal(t, tc.ExpectedStatus, rr.Code, "%s failed. Response: %v", tc.TestName, rr.Code)
-	}
-}
-func Test_Handler_API_createMovement(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	tt := []struct {
-		TestName, Filename string
-		ExpectedStatus     int
-		Error              error
-	}{
-		{"Ok", "create_movement_ok", http.StatusCreated, nil},
-		{"WrongFormat", "create_movement_wrong_format", http.StatusBadRequest, nil},
-		{"ErrorWrongCurrency", "create_movement_ok", http.StatusBadRequest, movement.ErrorWrongCurrency},
-		{"ErrorInsufficientBalance", "create_movement_ok", http.StatusBadRequest, movement.ErrorInsufficientBalance},
-		{"InternalServerError", "create_movement_ok", http.StatusInternalServerError, errors.New("fail")},
-	}
-
-	for _, tc := range tt {
-		// When
-		service := &serviceMock{}
-
-		service.On("CreateMovement").Return(int64(1), tc.Error)
-
-		rr := httptest.NewRecorder()
-		router := gin.Default()
-		API(router, service)
-		body, err := ioutil.ReadFile(fmt.Sprintf("testdata/%s.json", tc.Filename))
-		require.NoError(t, err)
-		reader := bytes.NewReader(body)
-		request, err := http.NewRequest(http.MethodPost, "/movements", reader)
-		assert.NoError(t, err)
-
-		router.ServeHTTP(rr, request)
-		// Then
-		require.Equal(t, tc.ExpectedStatus, rr.Code, "%s failed. Response: %v", tc.TestName, rr.Code)
-	}
+	router.ServeHTTP(rr, request)
+	// Then
+	require.Equal(t, http.StatusOK, rr.Code)
 }
 
 type serviceMock struct {
 	mock.Mock
 }
 
-func (s *serviceMock) CreateUser(ctx context.Context, name, lastName, alias, email string) (int64, error) {
+func (s *serviceMock) CreateUser(ctx context.Context, u user.User) error {
 	args := s.Called()
-	return args.Get(0).(int64), args.Error(1)
+	return args.Error(0)
 }
 
-func (s *serviceMock) GetUser(ctx context.Context, id int64) (user.User, error) {
+func (s *serviceMock) GetBalance(ctx context.Context, alias string) (movement.AccountBalance, error) {
 	args := s.Called()
-	return args.Get(0).(user.User), args.Error(1)
+	return args.Get(0).(movement.AccountBalance), args.Error(1)
 }
 
-func (s *serviceMock) CreateMovement(ctx context.Context, movement movement.Movement) (int64, error) {
+func (s *serviceMock) Send(ctx context.Context, m movement.Movement) error {
 	args := s.Called()
-	return args.Get(0).(int64), args.Error(1)
+	return args.Error(0)
 }
-func (s *serviceMock) SearchMovement(ctx context.Context, userID int64, limit, offset uint64, movType, currencyName string) ([]movement.Row, error) {
+
+func (s *serviceMock) AutoDeposit(ctx context.Context, m movement.Movement) error {
 	args := s.Called()
-	return args.Get(0).([]movement.Row), args.Error(1)
+	return args.Error(0)
+}
+
+func (s *serviceMock) GetHistory(ctx context.Context, alias string) (movement.AccountHistory, error) {
+	args := s.Called()
+	return args.Get(0).(movement.AccountHistory), args.Error(1)
+}
+
+func (s *serviceMock) ValidateCredential(ctx context.Context, alias, password string) (bool, error) {
+	args := s.Called()
+	return args.Bool(0), args.Error(1)
 }

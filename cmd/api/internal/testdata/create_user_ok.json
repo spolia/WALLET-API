@@ -1,6 +1,7 @@
 {
+  "alias": "mariagarcia",
   "firstname": "mary",
   "lastname": "garcia",
-  "alias": "mariagarcia",
+  "password": "1234",
   "email": "mariagarcia@gmail.com"
 }

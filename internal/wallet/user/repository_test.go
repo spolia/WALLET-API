@@ -24,16 +24,16 @@ func TestSave_ok(t *testing.T) {
 		LastName:  "lastname",
 		Alias:     "alias",
 		Email:     "email",
+		Password:  "1234",
 	}
 	// When
-	mock.ExpectExec("INSERT INTO users(first_name,last_name,alias,email)VALUES (?,?,?,?);").
-		WithArgs(input.FirstName, input.LastName, input.Alias, input.Email).
+	mock.ExpectExec("INSERT INTO users(alias,first_name,last_name,email,password) VALUES(?,?,?,?,?);").
+		WithArgs(input.Alias, input.FirstName, input.LastName, input.Email, input.Password).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	// then
-	id, err := repository.Save(context.Background(), input.FirstName, input.LastName, input.Alias, input.Email)
+	err = repository.Save(context.Background(), input)
 	require.NoError(t, err)
-	require.Equal(t, int64(1), id)
 }
 
 func TestSave_Fail(t *testing.T) {
@@ -50,18 +50,18 @@ func TestSave_Fail(t *testing.T) {
 		LastName:  "lastname",
 		Alias:     "alias",
 		Email:     "email",
+		Password:  "1234",
 	}
 	// When
-	mock.ExpectExec("INSERT INTO users(first_name,last_name,alias,email)VALUES (?,?,?,?);").
-		WithArgs(input.FirstName, input.LastName, input.Alias, input.Email).WillReturnError(&mysql.MySQLError{
+	mock.ExpectExec("INSERT INTO users(alias,first_name,last_name,email,password) VALUES(?,?,?,?,?);").
+		WithArgs(input.Alias, input.FirstName, input.LastName, input.Email, input.Password).WillReturnError(&mysql.MySQLError{
 		Number: 1062,
 	})
 
 	// then
-	id, err := repository.Save(context.Background(), input.FirstName, input.LastName, input.Alias, input.Email)
+	err = repository.Save(context.Background(), input)
 	require.Error(t, err)
 	require.EqualError(t, ErrorAlreadyExist, err.Error())
-	require.Equal(t, int64(0), id)
 }
 
 func TestDelete_Ok(t *testing.T) {
@@ -74,11 +74,11 @@ func TestDelete_Ok(t *testing.T) {
 	defer db.Close()
 
 	// When
-	mock.ExpectExec("DELETE FROM users Where id = ?;").
-		WithArgs(int64(1)).WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("DELETE FROM users Where alias = ?;").
+		WithArgs("user").WillReturnResult(sqlmock.NewResult(1, 1))
 
 	// then
-	err = repository.Delete(context.Background(), 1)
+	err = repository.Delete(context.Background(), "user")
 	require.NoError(t, err)
 }
 
@@ -92,15 +92,15 @@ func TestDelete_Fail(t *testing.T) {
 	defer db.Close()
 
 	// When
-	mock.ExpectExec("DELETE FROM users Where id = ?;").
-		WithArgs(int64(1)).WillReturnError(errors.New("database error"))
+	mock.ExpectExec("DELETE FROM users Where alias = ?;").
+		WithArgs("user").WillReturnError(errors.New("database error"))
 
 	// then
-	err = repository.Delete(context.Background(), 1)
+	err = repository.Delete(context.Background(), "user")
 	require.Error(t, err)
 }
 
-func TestGet_Ok(t *testing.T) {
+func TestExist_Ok(t *testing.T) {
 	// Given
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
 	if err != nil {
@@ -110,12 +110,12 @@ func TestGet_Ok(t *testing.T) {
 	defer db.Close()
 
 	// When
-	mock.ExpectQuery("SELECT * FROM users Where id = ?;").
-		WithArgs(int64(1)).WillReturnRows(sqlmock.NewRows([]string{"id", "first_name", "last_name", "alias", "email"}).
-		AddRow(1, "maria", "garcia", "alias", "@gmail"))
+	mock.ExpectQuery("SELECT alias FROM users WHERE alias = ?;").
+		WithArgs("user").WillReturnRows(sqlmock.NewRows([]string{"alias"}).
+		AddRow("user"))
 
 	// then
-	userResponse, err := repository.Get(context.Background(), int64(1))
+	exist, err := repository.Exist(context.Background(), "user")
 	require.NoError(t, err)
-	require.NotEmpty(t, userResponse)
+	require.True(t, exist)
 }

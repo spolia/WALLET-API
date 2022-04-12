@@ -5,21 +5,25 @@ import (
 	"errors"
 )
 
-var ErrorUserNotFound = errors.New("user: not found")
-var ErrorAlreadyExist = errors.New("user: already exist")
+var (
+	ErrorInvalidCredential   = errors.New("invalid credentials")
+	ErrorDestinyUserNotFound = errors.New("not found")
+	ErrorCreatingUser        = errors.New("creating user")
+	ErrorAlreadyExist        = errors.New("already exist")
+)
 
 type Repository interface {
-	Save(ctx context.Context, firstName, lastName, alias, email string) (int64, error)
-	Get(ctx context.Context, id int64) (User, error)
-	Delete(ctx context.Context, id int64) error
+	Save(ctx context.Context, u User) error
+	Exist(ctx context.Context, alias string) (bool, error)
+	Delete(ctx context.Context, alias string) error
+	IsValidCredential(ctx context.Context, alias, password string) (bool, error)
 }
 
 type User struct {
-	ID              int64              `json:"id"`
-	FirstName       string             `json:"firstname" binding:"required"`
-	LastName        string             `json:"lastname" binding:"required"`
-	Alias           string             `json:"alias" binding:"required"`
-	Email           string             `json:"email" binding:"required"`
+	Alias           string             `json:"alias" validate:"required"`
+	FirstName       string             `json:"firstname" validate:"required"`
+	LastName        string             `json:"lastname" validate:"required"`
+	Email           string             `json:"email" validate:"required"`
 	WalletStatement map[string]float64 `json:"walletstatement"`
-	Password        string             `json:"password"`
+	Password        string             `json:"password" validate:"required"`
 }
