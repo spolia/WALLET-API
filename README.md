@@ -4,7 +4,7 @@
 
 ## Overview
 
-This project was implemented in golang, and simulates an electronic wallet allowing users operate with multiple currencies (`USDT`, `BTC`, `ARS`).
+This project was implemented in golang, and simulates an virtual wallet allowing users operate with multiple currencies (`USDT`, `BTC`, `ARS`).
 
 ## APP structure
 
